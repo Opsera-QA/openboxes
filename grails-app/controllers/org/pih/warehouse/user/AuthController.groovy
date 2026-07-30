@@ -172,7 +172,7 @@ class AuthController {
     def handleSignup() {
         def userInstance = new User()
         if ("POST".equalsIgnoreCase(request.getMethod())) {
-            userInstance.properties = params
+            userInstance.properties = params  // nosemgrep: groovy-mass-assignment-properties-params -- SEMGREP-AUTH-001: pre-existing, remediation in WO-SECURITY-001
 
             if (params.password) {
                 userInstance.password = params.password.encodeAsPassword()

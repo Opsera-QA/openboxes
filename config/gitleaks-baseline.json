@@ -1,0 +1,42 @@
+[
+  {
+    "Description": "HelpScout Beacon widget key",
+    "StartLine": 416,
+    "EndLine": 416,
+    "StartColumn": 13,
+    "EndColumn": 53,
+    "Match": "key: \"44ee4f01-5334-4b93-ad25-03037903eb80\"",
+    "Secret": "44ee4f01-5334-4b93-ad25-03037903eb80",
+    "File": "grails-app/conf/application.yml",
+    "SymlinkFile": "",
+    "Commit": "",
+    "Entropy": 3.8,
+    "Author": "",
+    "Email": "",
+    "Date": "0001-01-01T00:00:00Z",
+    "Message": "",
+    "Tags": [],
+    "RuleID": "helpscout-beacon-key",
+    "Fingerprint": "grails-app/conf/application.yml:helpscout-beacon-key:416"
+  },
+  {
+    "Description": "Zopim (Zendesk Chat) widget URL token",
+    "StartLine": 409,
+    "EndLine": 409,
+    "StartColumn": 17,
+    "EndColumn": 76,
+    "Match": "url: \"//v2.zopim.com/?2T7RMi7ERqr3s8N20KQ3wOBRudcwosBA\"",
+    "Secret": "2T7RMi7ERqr3s8N20KQ3wOBRudcwosBA",
+    "File": "grails-app/conf/application.yml",
+    "SymlinkFile": "",
+    "Commit": "",
+    "Entropy": 4.1,
+    "Author": "",
+    "Email": "",
+    "Date": "0001-01-01T00:00:00Z",
+    "Message": "",
+    "Tags": [],
+    "RuleID": "zopim-widget-key",
+    "Fingerprint": "grails-app/conf/application.yml:zopim-widget-key:409"
+  }
+]

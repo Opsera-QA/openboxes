@@ -1,0 +1,158 @@
+# config/semgrep/openboxes-sql-injection.yml
+#
+# Custom Semgrep rules for detecting SQL injection via Groovy GString interpolation
+# in the OpenBoxes Grails/Groovy application.
+#
+# IMPORTANT — Groovy AST parsing in Semgrep is partial.  Where AST matching is
+# unreliable this file falls back to generic (spacegrep) or regex mode.
+# Trade-off: generic and regex rules can fire on comments and non-SQL strings that
+# happen to contain the same surface pattern.  Each rule documents its expected
+# false-positive rate.  Suppress known-safe lines with a scoped inline annotation:
+#
+#   sql.eachRow(safeQuery)  // nosemgrep: groovy-gstring-sql-method-interpolation
+#
+# Use file-and-rule-scoped nosemgrep comments rather than global disables.
+#
+# Known true positives confirmed against the unmodified codebase:
+#   1. grails-app/controllers/org/pih/warehouse/shipping/ShipmentController.groovy
+#      downloadPackingList — interpolates params.id into a raw SQL string (line ~693)
+#   2. grails-app/services/org/pih/warehouse/order/OrderSummaryService.groovy
+#      getOrderSummarySelect — interpolates orderId into every SQL fragment (line ~53+)
+#
+# Remediation: WO-SECURITY-001 (SQL parameterization hardening epic).
+# Liquibase migration files under grails-app/migrations/ are excluded because they
+# contain intentional literal SQL and are not user-controlled execution paths.
+
+rules:
+
+  # ─── Rule 1 ────────────────────────────────────────────────────────────────
+  # Groovy GString interpolation passed directly to groovy.sql.Sql query methods.
+  #
+  # Covers inline patterns such as:
+  #   sql.executeQuery("SELECT … WHERE id = ${params.id}")
+  #   sql.rows("SELECT … WHERE id = ${foo}")
+  #   sql.eachRow("SELECT … WHERE id = ${bar}")
+  #   sql.executeUpdate("UPDATE … SET x = ${val}")
+  #   dataService.executeQuery("SELECT … WHERE id = ${id}")
+  #
+  # Language: generic — spacegrep gives reliable single-line matching without
+  # needing a full Groovy AST.
+  # False-positive rate: LOW when the argument is on the same line as the call.
+  # ───────────────────────────────────────────────────────────────────────────
+  - id: groovy-gstring-sql-method-interpolation
+    languages: [generic]
+    message: >
+      SQL injection risk: Groovy GString interpolation `${...}` flows directly into
+      a groovy.sql.Sql query method (executeQuery / rows / eachRow / executeUpdate /
+      execute).  Replace with parameterised queries using `?` placeholders:
+        sql.rows("SELECT ... WHERE id = ?", [id])
+      Confirmed site: ShipmentController.downloadPackingList — remediation tracked
+      in WO-SECURITY-001.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      confidence: HIGH
+      remediation_story: WO-SECURITY-001
+    patterns:
+      - pattern-regex: '\.(executeQuery|rows\b|eachRow\b|executeUpdate|execute\b)\s*\([^)]*\$\{'
+    paths:
+      include:
+        - "grails-app/**/*.groovy"
+        - "src/main/groovy/**/*.groovy"
+      exclude:
+        - "grails-app/migrations/**"
+        - "config/semgrep/tests/**"
+
+  # ─── Rule 2 ────────────────────────────────────────────────────────────────
+  # GString interpolation appearing inside a SQL-bearing string literal.
+  #
+  # This rule catches the OrderSummaryService pattern where the orderId is
+  # interpolated into a triple-quoted string that is later passed to a query
+  # method, meaning the interpolation site is NOT co-located with the method
+  # call:
+  #
+  #   return """
+  #     …
+  #     AND `order`.id = '${orderId}'
+  #     …
+  #   """
+  #
+  # Detection heuristic: dot-notation column reference (table.column or
+  # `table`.column) immediately before `= '${...}'` or `= ${...}`.
+  # This targets the SQL `column = value` assignment pattern without relying
+  # on SQL keywords that are also common English words (AND, OR, FROM, SET),
+  # which caused false positives on log statements.
+  #
+  # Language: generic — single-line match.
+  # Severity: WARNING — this broader pattern catches many pre-existing sites
+  # across the codebase (IndicatorDataService, ForecastingService, etc.).
+  # New direct-interpolation calls in sql.* methods are already guarded at
+  # ERROR severity by groovy-gstring-sql-method-interpolation.
+  # False-positive rate: LOW-MEDIUM — requires dot-notation before `=`.
+  # ───────────────────────────────────────────────────────────────────────────
+  - id: groovy-gstring-sql-string-literal
+    languages: [generic]
+    message: >
+      SQL injection risk: a Groovy GString `${...}` interpolation appears after a
+      SQL column reference (table.column = '${...}' or `table`.col = '${...}').
+      This pattern is present in OrderSummaryService (orderId interpolated into SQL
+      fragments) and ShipmentController.downloadPackingList (params.id) — WO-SECURITY-001.
+      Replace with named parameters (`:paramName`) passed via a List or Map argument.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      confidence: MEDIUM
+      false_positive_note: >
+        Requires dot-notation (table.column) before = to avoid common English word
+        false positives.  Annotate known-safe lines with
+        `// nosemgrep: groovy-gstring-sql-string-literal` when the value is not
+        user-controlled.
+      remediation_story: WO-SECURITY-001
+    patterns:
+      - pattern-regex: '(?:`[^`]+`|\w+)\.(?:`[^`]+`|\w+)\s*=\s*[''"]?\$\{'
+    paths:
+      include:
+        - "grails-app/**/*.groovy"
+        - "src/main/groovy/**/*.groovy"
+      exclude:
+        - "grails-app/migrations/**"
+        - "config/semgrep/tests/**"
+
+  # ─── Rule 3 ────────────────────────────────────────────────────────────────
+  # GString interpolation into Hibernate Session / GORM query factory methods.
+  #
+  # Covers:
+  #   session.createSQLQuery("SELECT … WHERE id = ${id}")
+  #   session.createQuery("FROM Foo WHERE id = ${id}")
+  #   domainClass.executeQuery("FROM Foo WHERE id = ${id}")
+  #
+  # Language: generic — single-line method-call matching.
+  # False-positive rate: LOW — method names are specific enough.
+  # ───────────────────────────────────────────────────────────────────────────
+  - id: groovy-hibernate-gstring-interpolation
+    languages: [generic]
+    message: >
+      SQL/HQL injection risk: Groovy GString interpolation `${...}` flows into a
+      Hibernate `createSQLQuery`, `createQuery`, or GORM `executeQuery` call.
+      Use named parameters (`:name`) or positional parameters (`?`) passed as a
+      Map or List argument to the query method instead.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+      owasp: "A03:2021 - Injection"
+      confidence: HIGH
+      remediation_story: WO-SECURITY-001
+    patterns:
+      - pattern-regex: '\b(createSQLQuery|createQuery)\s*\([^)]*\$\{'
+    paths:
+      include:
+        - "grails-app/**/*.groovy"
+        - "src/main/groovy/**/*.groovy"
+      exclude:
+        - "grails-app/migrations/**"
+        - "config/semgrep/tests/**"

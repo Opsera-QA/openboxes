@@ -1,0 +1,136 @@
+# config/semgrep/openboxes-mass-assignment.yml
+#
+# Custom Semgrep rules for detecting mass-assignment and raw-parameter-logging
+# vulnerabilities in the OpenBoxes Grails/Groovy application.
+#
+# Mass assignment allows a client to supply arbitrary request parameters that are
+# bound directly onto domain objects, potentially overwriting sensitive fields
+# (active flag, admin flag, roles) that should not be user-settable.
+#
+# Known true positives:
+#   1. grails-app/controllers/org/pih/warehouse/user/AuthController.groovy
+#      handleSignup — `userInstance.properties = params` (line ~175)
+#
+# Remediation: replace `domain.properties = params` with an explicit command
+# object or allow-list binding: `bindData(domain, params, [include: [...]])`.
+
+rules:
+
+  # ─── Rule 1 ────────────────────────────────────────────────────────────────
+  # Mass assignment via `.properties = params`.
+  #
+  # The Grails idiom `domainInstance.properties = params` binds ALL request
+  # parameters onto the domain object — including fields the caller should never
+  # control.  A controller that performs this assignment MUST be audited to
+  # confirm there is no sensitive field (e.g. `active`, `role`, `admin`) that
+  # could be injected.
+  #
+  # Known site: AuthController.handleSignup sets `userInstance.properties = params`
+  # before saving, allowing a signup caller to set `active = true` and bypass the
+  # admin-approval flow.
+  #
+  # Language: generic — reliable single-line pattern.
+  # False-positive rate: VERY LOW — the idiom `.properties = params` is
+  # unambiguously a mass-assignment binding.
+  # ───────────────────────────────────────────────────────────────────────────
+  - id: groovy-mass-assignment-properties-params
+    languages: [generic]
+    message: >
+      Mass-assignment risk: `domain.properties = params` binds all request
+      parameters onto the domain object, including fields that callers should not
+      control (e.g. `active`, `role`, `admin`).  Replace with allow-list binding:
+        bindData(domain, params, [include: ['field1', 'field2']])
+      Known site: AuthController.handleSignup — remediation tracked in WO-SECURITY-001.
+    severity: ERROR
+    metadata:
+      category: security
+      cwe: "CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes"
+      owasp: "A04:2021 - Insecure Design"
+      confidence: HIGH
+      remediation_story: WO-SECURITY-001
+    patterns:
+      - pattern-regex: '\.properties\s*=\s*params\b'
+    paths:
+      include:
+        - "grails-app/**/*.groovy"
+        - "src/main/groovy/**/*.groovy"
+      exclude:
+        - "grails-app/migrations/**"
+        - "config/semgrep/tests/**"
+
+  # ─── Rule 2 ────────────────────────────────────────────────────────────────
+  # Mass assignment via constructing a domain from another instance's properties
+  # map (e.g. `new Foo(bar.properties)`).
+  #
+  # Using `.properties` from one domain object to construct another has the same
+  # risk profile as `domain.properties = params`: all fields are transferred,
+  # including internal/computed ones.
+  #
+  # Language: generic — single-line pattern.
+  # False-positive rate: LOW.
+  # ───────────────────────────────────────────────────────────────────────────
+  - id: groovy-mass-assignment-properties-map-construction
+    languages: [generic]
+    message: >
+      Mass-assignment risk: constructing a domain object from another instance's
+      `.properties` map transfers ALL fields including internal or computed ones.
+      Use an explicit constructor or allow-list binding instead.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes"
+      owasp: "A04:2021 - Insecure Design"
+      confidence: MEDIUM
+      remediation_story: WO-SECURITY-001
+    patterns:
+      - pattern-regex: 'new\s+\w+\s*\(\s*\w+\.properties\s*\)'
+    paths:
+      include:
+        - "grails-app/**/*.groovy"
+        - "src/main/groovy/**/*.groovy"
+      exclude:
+        - "grails-app/migrations/**"
+        - "config/semgrep/tests/**"
+
+  # ─── Rule 3 ────────────────────────────────────────────────────────────────
+  # Raw request parameters logged to the application log.
+  #
+  # Logging the full `params` map exposes passwords, tokens, and PII in log
+  # files — a CWE-312 / CWE-359 finding and an OWASP A09 (Logging and
+  # Monitoring Failures) issue.  Seen in JsonController at multiple log sites.
+  #
+  # Language: generic — single-line log-call pattern.
+  # False-positive rate: MEDIUM — benign logging of IDs that happen to be called
+  # `params` will match.  Review each finding: if only `params.id` or a single
+  # known-safe field is logged, suppress with nosemgrep.
+  # ───────────────────────────────────────────────────────────────────────────
+  - id: groovy-raw-params-logging
+    languages: [generic]
+    message: >
+      Sensitive data logging risk: the full `params` map is passed to a log
+      statement, potentially exposing passwords, API tokens, and PII in log files.
+      Log only the specific fields needed for diagnostics; sanitize or omit
+      sensitive keys:
+        log.info "action: ${params.action}, id: ${params.id}"
+      Known site: JsonController logs `params` at INFO level in multiple action
+      methods — see WO-SECURITY-001.
+    severity: WARNING
+    metadata:
+      category: security
+      cwe: "CWE-312: Cleartext Storage of Sensitive Information"
+      owasp: "A09:2021 - Security Logging and Monitoring Failures"
+      confidence: MEDIUM
+      false_positive_note: >
+        Logging only `params.id`, `params.action`, or other known-safe scalar
+        fields is acceptable.  Suppress with nosemgrep if the logged value has
+        been audited and contains no sensitive data.
+      remediation_story: WO-SECURITY-001
+    patterns:
+      - pattern-regex: 'log\.(info|debug|warn|error|trace)\s*[("''][^"'')\n]*\bparams\b[^"'')\n]*[)"'']?\s*$'
+    paths:
+      include:
+        - "grails-app/**/*.groovy"
+        - "src/main/groovy/**/*.groovy"
+      exclude:
+        - "grails-app/migrations/**"
+        - "config/semgrep/tests/**"

@@ -1,0 +1,72 @@
+# .gitleaks.toml
+#
+# Gitleaks configuration for OpenBoxes.
+# Extends the Gitleaks default ruleset with project-specific rules and path
+# allowlists.  The baseline of pre-existing findings is committed at
+# config/gitleaks-baseline.json and referenced via --baseline-path in CI.
+#
+# Reference: https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml
+
+title = "OpenBoxes Gitleaks Configuration"
+
+[extend]
+# Inherit the full default Gitleaks rule set and add project-specific overrides.
+useDefault = true
+
+# ─── Project-specific custom rules ──────────────────────────────────────────
+
+[[rules]]
+id = "helpscout-beacon-key"
+description = "HelpScout Beacon widget key"
+regex = '''helpscout[^"'\n]{0,50}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+entropy = 3.0
+keywords = ["helpscout"]
+[rules.allowlist]
+description = "Known baseline entry — pre-existing HelpScout key in application.yml"
+paths = [
+    '''grails-app/conf/application\.yml''',
+]
+
+[[rules]]
+id = "zopim-widget-key"
+description = "Zopim (Zendesk Chat) widget URL token"
+regex = '''zopim\.com/\?[A-Za-z0-9]{20,}'''
+entropy = 3.5
+keywords = ["zopim.com"]
+[rules.allowlist]
+description = "Known baseline entry — pre-existing Zopim key in application.yml"
+paths = [
+    '''grails-app/conf/application\.yml''',
+]
+
+# ─── Global allowlists ───────────────────────────────────────────────────────
+
+[allowlist]
+description = "Global allowlist — paths that are safe to contain credential-like strings"
+
+# Documentation and example configuration files intentionally show placeholder
+# values like <your-api-key> or AKIAIOSFODNN7EXAMPLE.
+paths = [
+    '''docs/''',
+    '''README''',
+    '''CHANGELOG''',
+    '''\.md$''',
+    '''config/semgrep/tests/''',
+]
+
+# Synthetic placeholder strings used in tests and documentation.
+regexes = [
+    # AWS example key from official AWS documentation (not real)
+    '''AKIAIOSFODNN7EXAMPLE''',
+    # Generic placeholder patterns
+    '''<your[-_]?api[-_]?key>''',
+    '''<your[-_]?secret>''',
+    '''<your[-_]?token>''',
+    # Example values with obvious placeholder structure
+    '''example[-_]?key[-_]?here''',
+    '''INSERT[-_]?YOUR[-_]?KEY''',
+    # Gradle build properties that are always empty strings
+    '''apiKey:\s*""''',
+    '''secretKey:\s*""''',
+    '''password:\s*null''',
+]

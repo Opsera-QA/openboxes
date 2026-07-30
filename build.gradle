@@ -868,6 +868,35 @@ task writePom {
     }
 }
 
+/**
+ * Security waiver expiry checker.
+ *
+ * Validates every entry in config/semgrep/allowlist.yml to ensure that no
+ * suppressed finding has an expired expiryDate.  An expired entry fails this
+ * task with a non-zero exit code, blocking the CI build.
+ *
+ * Run manually:
+ *   ./gradlew checkSecurityWaiverExpiry
+ *
+ * This task is also invoked by the security-scan.yml GitHub Actions workflow
+ * before the Semgrep and Gitleaks scans so that an expired allowlist entry
+ * produces an explicit failure message rather than a confusing scan error.
+ */
+task checkSecurityWaiverExpiry(type: JavaExec) {
+    description = 'Verify that no security-finding allowlist entry has an expired expiryDate'
+    group = 'Verification'
+    dependsOn compileGroovy
+    classpath = sourceSets.main.runtimeClasspath
+    main = 'org.pih.warehouse.security.SecurityWaiverExpiryChecker'
+    args = [file('config/semgrep/allowlist.yml').absolutePath]
+    doFirst {
+        File allowlistFile = file('config/semgrep/allowlist.yml')
+        if (!allowlistFile.exists()) {
+            throw new GradleException("Security allowlist not found: ${allowlistFile.absolutePath}")
+        }
+    }
+}
+
 // Jacoco code coverage reporting. https://docs.gradle.org/4.10.3/userguide/jacoco_plugin.html
 // Running "./gradlew jacocoTestReport" will execute all unit and integration tests, then generate a code
 // coverage report under the "/build/reports/jacoco" folder.

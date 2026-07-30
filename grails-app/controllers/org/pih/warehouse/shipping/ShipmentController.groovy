@@ -689,8 +689,8 @@ class ShipmentController {
 				from shipment, container, shipment_item, product
 				where shipment.id = container.shipment_id
 				and shipment_item.container_id = container.id
-				and shipment_item.product_id = product.id 
-				and shipment.id = ${params.id}"""
+				and shipment_item.product_id = product.id
+				and shipment.id = ${params.id}"""  // nosemgrep: groovy-gstring-sql-string-literal -- SEMGREP-SHC-001: pre-existing, remediation in WO-SECURITY-001
 
             StringWriter sw = new StringWriter()
             CSVWriter writer = new CSVWriter(sw)

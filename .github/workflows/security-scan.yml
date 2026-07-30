@@ -1,0 +1,159 @@
+name: Security Scan
+
+# Runs Semgrep SAST and Gitleaks secret scanning on every pull request and on
+# pushes to the main integration branches.
+#
+# Both jobs run in parallel and fail independently so both scan results are
+# always visible.
+#
+# Pull-request runs scope Gitleaks to the diff only to stay within the job
+# timeout on a large repository with full history.  Scheduled runs scan the
+# full history to ensure no historical secret is missed.
+#
+# Fork pull requests: the jobs fail on findings via exit code even when the
+# GitHub code-scanning upload step is skipped (no write permissions on forks).
+# The gate is the exit code, not the upload.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: ['master', 'develop', 'release/**']
+  schedule:
+    # Full-history Gitleaks scan weekly (Sundays at 03:00 UTC) to catch any
+    # secrets that slipped through incremental diff scans.
+    - cron: '0 3 * * 0'
+
+jobs:
+
+  # ── Semgrep SAST ───────────────────────────────────────────────────────────
+  semgrep:
+    name: Semgrep SAST
+    runs-on: ubuntu-latest
+    # Required for SARIF upload to GitHub code scanning (skipped on forks).
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Validate security waiver expiry (Gradle)
+        # Run the expiry checker before the scan so that an expired allowlist
+        # entry is reported as an explicit build failure, not a mysterious
+        # scan failure.
+        run: ./gradlew checkSecurityWaiverExpiry --no-daemon
+
+      - name: Run Semgrep rule tests
+        # Verify every rule matches its positive fixture and ignores its
+        # negative fixture before running the production scan.
+        uses: docker://semgrep/semgrep:1.78.0
+        with:
+          entrypoint: semgrep
+          args: >-
+            --test
+            --config config/semgrep/
+            config/semgrep/tests/
+
+      - name: Run Semgrep SAST scan
+        # SHA-pinned to semgrep 1.78.0 (2024-10 release).
+        # Update the pin when upgrading Semgrep; verify the new image digest.
+        #
+        # --error exits non-zero when any finding at or above --severity is found.
+        # Severity breakdown:
+        #   ERROR  — direct GString interpolation into sql.* or Hibernate methods,
+        #            or .properties = params mass assignment; these are specific
+        #            patterns with low false-positive rates that must be fixed.
+        #   WARNING — broader SQL-string-literal patterns and raw-params-logging;
+        #            visible in SARIF but do not fail the build; pre-existing sites
+        #            are recorded in config/semgrep/allowlist.yml.
+        # New ERROR findings (not suppressed with nosemgrep) block the PR.
+        uses: docker://semgrep/semgrep:1.78.0
+        with:
+          entrypoint: semgrep
+          args: >-
+            --config config/semgrep/openboxes-sql-injection.yml
+            --config config/semgrep/openboxes-mass-assignment.yml
+            --sarif
+            --output semgrep-results.sarif
+            --error
+            --severity ERROR
+            grails-app/
+            src/main/groovy/
+            src/js/
+
+      - name: Upload SARIF results as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif
+          path: semgrep-results.sarif
+          retention-days: 30
+
+      - name: Upload SARIF to GitHub code scanning
+        # Skipped on fork pull requests — forks cannot write to the upstream
+        # code-scanning dashboard.  The job still fails on findings via the
+        # --error flag above.
+        if: >
+          always() &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep-results.sarif
+          category: semgrep
+
+  # ── Gitleaks Secret Scanning ───────────────────────────────────────────────
+  gitleaks:
+    name: Gitleaks Secret Scan
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout Code
+        # For pull requests: fetch full history so Gitleaks can diff accurately.
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate security waiver expiry
+        run: ./gradlew checkSecurityWaiverExpiry --no-daemon
+
+      - name: Run Gitleaks (diff scan on PRs, full scan on push/schedule)
+        # SHA-pinned to gitleaks v8.18.4.
+        # --redact masks secret values in the report to avoid leaking them into
+        # build logs or SARIF uploads.
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Disable the default Gitleaks license check — we use our own pinned image.
+          GITLEAKS_LICENSE: ""
+        with:
+          args: >-
+            detect
+            --config .gitleaks.toml
+            --baseline-path config/gitleaks-baseline.json
+            --report-format sarif
+            --report-path gitleaks-results.sarif
+            --redact
+            --exit-code 1
+            ${{ github.event_name == 'pull_request' && '--log-opts HEAD^..HEAD' || '' }}
+
+      - name: Upload Gitleaks SARIF as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-sarif
+          path: gitleaks-results.sarif
+          retention-days: 30
+
+      - name: Upload Gitleaks SARIF to GitHub code scanning
+        if: >
+          always() &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: gitleaks-results.sarif
+          category: gitleaks

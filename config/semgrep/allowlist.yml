@@ -1,0 +1,120 @@
+# config/semgrep/allowlist.yml
+#
+# Unified security-finding allowlist for pre-existing findings in OpenBoxes.
+# Covers both Semgrep and Gitleaks findings that are known at the time of
+# initial guardrail deployment and cannot be fixed immediately.
+#
+# RULES:
+#   - Every entry MUST have: id, tool, owner, justification, expiryDate.
+#   - expiryDate MUST be a future date — the checkSecurityWaiverExpiry Gradle
+#     task fails the build if any entry is expired.
+#   - When a finding is remediated, REMOVE the entry from this file.
+#   - Extend expiry only with explicit team approval and a linked story.
+#   - No real credential values may appear here — use fingerprint/ruleId refs.
+#
+# Run the expiry check locally:
+#   ./gradlew checkSecurityWaiverExpiry
+
+entries:
+
+  # ── Semgrep findings ────────────────────────────────────────────────────────
+
+  - id: "SEMGREP-SHC-001"
+    tool: semgrep
+    ruleId: "groovy-gstring-sql-string-literal"
+    file: "grails-app/controllers/org/pih/warehouse/shipping/ShipmentController.groovy"
+    line: 693
+    description: "params.id interpolated into raw SQL string in downloadPackingList"
+    owner: "platform-team"
+    justification: >
+      Pre-existing raw SQL interpolation. The downloadPackingList action
+      interpolates params.id directly into a SQL string (shipment.id = ${params.id})
+      which is subsequently passed to sql.eachRow. Caught by the WARNING-severity
+      groovy-gstring-sql-string-literal rule. Remediation in WO-SECURITY-001.
+    expiryDate: "2026-12-31"
+    remediationStory: "WO-SECURITY-001"
+
+  - id: "SEMGREP-OSS-001"
+    tool: semgrep
+    ruleId: "groovy-gstring-sql-string-literal"
+    file: "grails-app/services/org/pih/warehouse/order/OrderSummaryService.groovy"
+    line: 53
+    description: "orderId interpolated into SQL column-equals clause across six methods"
+    owner: "platform-team"
+    justification: >
+      Pre-existing orderId interpolation in SQL string literals. Six methods
+      (getOrderItemStatusSelect, getOrderItemReceiptStatusSelect,
+      getOrderItemPaymentStatusSelect, getOrderItemSummarySelect,
+      getOrderAdjustmentPaymentStatusSelect, getOrderSummarySelect) interpolate
+      orderId into `order`.id = '${orderId}' patterns. Caught by WARNING-severity
+      groovy-gstring-sql-string-literal. Remediation in WO-SECURITY-001.
+    expiryDate: "2026-12-31"
+    remediationStory: "WO-SECURITY-001"
+
+  - id: "SEMGREP-AUTH-001"
+    tool: semgrep
+    ruleId: "groovy-mass-assignment-properties-params"
+    file: "grails-app/controllers/org/pih/warehouse/user/AuthController.groovy"
+    line: 175
+    description: "userInstance.properties = params in handleSignup"
+    owner: "platform-team"
+    justification: >
+      Pre-existing mass assignment in the signup flow. The handleSignup action
+      binds all request parameters onto the User domain object. While the active
+      flag is set explicitly to false on the next line, other sensitive fields
+      remain user-controllable. Remediation: replace with allow-list bindData
+      in WO-SECURITY-001.
+    expiryDate: "2026-12-31"
+    remediationStory: "WO-SECURITY-001"
+
+  - id: "SEMGREP-JSON-001"
+    tool: semgrep
+    ruleId: "groovy-raw-params-logging"
+    file: "grails-app/controllers/org/pih/warehouse/JsonController.groovy"
+    line: 104
+    description: "log.info with full params map in addToRequisitionItems"
+    owner: "platform-team"
+    justification: >
+      Pre-existing raw params logging in JsonController. Multiple action methods
+      log the full params map at INFO level. Passwords and tokens submitted in
+      request parameters may appear in log files. Remediation: log only specific
+      safe fields in WO-SECURITY-001.
+    expiryDate: "2026-12-31"
+    remediationStory: "WO-SECURITY-001"
+
+  # ── Gitleaks findings ───────────────────────────────────────────────────────
+
+  - id: "GITLEAKS-GL-001"
+    tool: gitleaks
+    fingerprintPattern: "grails-app/conf/application.yml:generic-api-key:"
+    ruleId: "generic-api-key"
+    file: "grails-app/conf/application.yml"
+    line: 416
+    description: "HelpScout Beacon widget key embedded in application.yml"
+    owner: "platform-team"
+    justification: >
+      The HelpScout Beacon key (openboxes.helpscout.widget.key) is a client-side
+      widget identifier — not a backend API credential — and is intentionally
+      embedded in the shipped configuration for self-hosted deployments. It grants
+      no server-side access and is scoped to read-only widget embedding. However,
+      it should be moved to environment-variable injection to prevent token rotation
+      from requiring a code change. Remediation tracked in WO-SECURITY-002.
+    expiryDate: "2026-12-31"
+    remediationStory: "WO-SECURITY-002"
+
+  - id: "GITLEAKS-GL-002"
+    tool: gitleaks
+    fingerprintPattern: "grails-app/conf/application.yml:zopim-widget-key:"
+    ruleId: "generic-api-key"
+    file: "grails-app/conf/application.yml"
+    line: 409
+    description: "Zopim (Zendesk Chat) widget key embedded in application.yml"
+    owner: "platform-team"
+    justification: >
+      The Zopim widget URL contains a client-side chat widget key
+      (openboxes.zopim.widget.url). The widget is disabled by default
+      (enabled: false) and the key is a public widget identifier with no
+      server-side access scope. Should be moved to environment-variable
+      injection. Remediation tracked in WO-SECURITY-002.
+    expiryDate: "2026-12-31"
+    remediationStory: "WO-SECURITY-002"
