@@ -28,13 +28,52 @@ jobs:
           distribution: temurin
           cache: gradle
 
-      # Run all tests against each of the databases defined in the above matrix. We could split the integration
-      # tests into a separate job and run the matrix only on that job (because unit tests don't care about the
-      # underlying database and so running them against multiple databases is pointless), but matrix jobs are run
-      # in parallel, so it wouldn't save us any running time to do that. Plus it would overcomplicate the flow.
-      # The jacocoTestReport task dependsOn all tests, and so will run them before generating the report.
-      - name: Run All Tests (with coverage)
-        run: TEST_DATABASE=${{ matrix.testdatabase }} ./gradlew jacocoTestReport --no-daemon
+      # Run unit tests (src/test/groovy) and integration tests (src/integration-test/groovy)
+      # as separate Gradle tasks so each tier writes its own .exec file under build/jacoco/.
+      # The integration tier requires a database; Testcontainers provisions one from the
+      # TEST_DATABASE image.  The dirty-database contract between integration specs is
+      # intentional and must not be changed here.
+      - name: Run Unit Tests
+        run: ./gradlew test --no-daemon
+
+      - name: Run Integration Tests
+        run: TEST_DATABASE=${{ matrix.testdatabase }} ./gradlew integrationTest --no-daemon
+
+      # Merge both .exec files into one aggregate XML + HTML report under
+      # build/reports/jacoco/aggregate/.  The task fails with a clear message if
+      # either exec file is missing or zero-byte (see gradle/coverage.gradle).
+      - name: Generate Aggregate Coverage Report
+        run: ./gradlew jacocoAggregateReport --no-daemon
+
+      # Fail the build if instruction or branch coverage has regressed beyond the
+      # tolerance committed in config/coverage-baseline.properties.
+      # The ratchet writes a Markdown summary to build/jacoco/coverage-summary.md.
+      - name: Verify Coverage Ratchet
+        run: ./gradlew coverageRatchet --no-daemon
+
+      # Append the coverage table to the GitHub job summary so reviewers can see
+      # the figures without downloading the artifact.
+      - name: Post coverage to job summary
+        if: always()
+        run: |
+          if [ -f build/jacoco/coverage-summary.md ]; then
+            cat build/jacoco/coverage-summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## JaCoCo Aggregate Coverage" >> "$GITHUB_STEP_SUMMARY"
+            echo "_Coverage summary not generated (report may have failed)._" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # Upload both XML and HTML so reviewers can browse the full report in CI.
+      # Retained for 30 days; only upload once (from the first matrix job) to
+      # avoid duplicate artifact names.
+      - name: Upload coverage report artifact
+        if: ${{ always() && strategy.job-index == 0 }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: jacoco-aggregate-report
+          path: build/reports/jacoco/aggregate/
+          retention-days: 30
+          if-no-files-found: warn
 
       # Tests are run for each database in the above matrix, but we only want to publish a code coverage report once.
       # "strategy.job-index" gives us the index of the current job in the matrix. Any index is fine. We use the first.
@@ -46,3 +85,4 @@ jobs:
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: build/reports/jacoco/aggregate/jacocoAggregateReport.xml

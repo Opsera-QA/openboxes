@@ -1,0 +1,217 @@
+/**
+ * JaCoCo aggregate coverage report and ratchet gate.
+ *
+ * The jacocoAggregateReport task merges execution data from both the unit-test
+ * and integration-test tiers into a single XML + HTML report under
+ * build/reports/jacoco/aggregate/.
+ *
+ * The coverageRatchet task compares the aggregate report against the committed
+ * baseline in config/coverage-baseline.properties and fails the build if
+ * coverage drops more than the configured tolerance below the baseline.
+ *
+ * Applied from build.gradle via:  apply from: 'gradle/coverage.gradle'
+ */
+
+// ── Justified excludes ────────────────────────────────────────────────────────
+// Every pattern below is documented with its reason to prevent silent drift.
+List jacocoAggregateExcludes = [
+    // Groovy-generated synthetic classes and closures: these anonymous inner
+    // classes inflate/deflate figures and do not represent hand-written logic.
+    'org/pih/warehouse/**/*$*',
+    // Liquibase changelog migration scripts compiled as classes by the build:
+    // they are never exercised by unit or API tests; including them is misleading.
+    '**/migrations/**',
+    // GSP-derived view proxy classes generated at runtime by Grails:
+    // not authored code and not reachable by any non-browser test tier.
+    'gsp/**',
+    'org/codehaus/groovy/grails/web/pages/**',
+    // Application-bootstrap entry point: contains only startup wiring and is
+    // never meaningfully exercised at the unit or RestAssured tiers.
+    'org/pih/warehouse/BootStrap*',
+    // Grails-plugin descriptor artifacts auto-generated per plugin:
+    // not meaningful coverage targets.
+    '**/*GrailsPlugin*',
+]
+
+// ── Aggregate report task ─────────────────────────────────────────────────────
+
+task jacocoAggregateReport(type: JacocoReport) {
+    description = 'Generates an aggregate JaCoCo report merging unit and integration execution data'
+    group = 'Verification'
+
+    // Both tiers must complete before the report can be generated.
+    dependsOn test, integrationTest
+
+    // Collect every .exec file written under build/jacoco/ by the individual
+    // test tasks.  If a tier was skipped its file will be absent; we detect
+    // this in the doFirst guard below.
+    executionData fileTree(dir: "${buildDir}/jacoco", include: '*.exec')
+
+    sourceDirectories = files('grails-app', 'src/main/groovy')
+    classDirectories = files(
+        fileTree(dir: "${buildDir}/classes/groovy/main", exclude: jacocoAggregateExcludes)
+    )
+
+    reports {
+        xml.enabled true
+        xml.destination = file("${buildDir}/reports/jacoco/aggregate/jacocoAggregateReport.xml")
+        html.enabled true
+        html.destination = file("${buildDir}/reports/jacoco/aggregate/html")
+    }
+
+    doFirst {
+        // Edge-case guard: both exec files must be present and non-empty.
+        // A zero-byte file signals a JVM crash; a missing file means the tier
+        // was skipped (e.g. no database service on a fork).  Either case must
+        // produce a clear build error rather than a silently truncated report.
+        List requiredExecFiles = [
+            file("${buildDir}/jacoco/test.exec"),
+            file("${buildDir}/jacoco/integrationTest.exec"),
+        ]
+        List problems = requiredExecFiles.findResults { File f ->
+            if (!f.exists()) return "missing exec file: ${f.name} (was the test tier skipped?)"
+            if (f.length() == 0L) return "zero-byte exec file (JVM crash or empty run?): ${f.name}"
+            null
+        }
+        if (problems) {
+            throw new GradleException(
+                "Cannot generate aggregate coverage report — exec files are incomplete:\n" +
+                "  " + problems.join('\n  ') + "\n\n" +
+                "Ensure both the 'test' and 'integrationTest' tasks completed successfully " +
+                "and that the database service was available for the integration tier."
+            )
+        }
+    }
+}
+
+// ── Coverage ratchet task ─────────────────────────────────────────────────────
+
+task coverageRatchet {
+    description = 'Fails the build if aggregate coverage regresses beyond the committed baseline tolerance'
+    group = 'Verification'
+    dependsOn jacocoAggregateReport
+
+    doLast {
+        // ── 1. Load the committed baseline ────────────────────────────────────
+        File baselineFile = file('config/coverage-baseline.properties')
+        if (!baselineFile.exists()) {
+            throw new GradleException(
+                "Coverage baseline file not found: ${baselineFile.absolutePath}\n" +
+                "Run 'jacocoAggregateReport' on a green build and commit the measured figures " +
+                "into config/coverage-baseline.properties."
+            )
+        }
+        Properties baseline = new Properties()
+        baselineFile.withInputStream { InputStream s -> baseline.load(s) }
+
+        BigDecimal tolerancePct = new BigDecimal(baseline.getProperty('coverage.tolerance', '0.5'))
+        Map baselineMap = [
+            instruction: new BigDecimal(baseline.getProperty('coverage.instruction', '0.0')),
+            branch     : new BigDecimal(baseline.getProperty('coverage.branch', '0.0')),
+        ]
+
+        // ── 2. Parse the aggregate JaCoCo XML ────────────────────────────────
+        File xmlReport = file("${buildDir}/reports/jacoco/aggregate/jacocoAggregateReport.xml")
+        if (!xmlReport.exists()) {
+            throw new GradleException(
+                "Aggregate JaCoCo XML report not found at:\n  ${xmlReport.absolutePath}\n" +
+                "Run 'jacocoAggregateReport' before 'coverageRatchet'."
+            )
+        }
+
+        Map currentCoverage = parseCoverageFromXml(xmlReport)
+
+        // ── 3. Compare and collect failures ──────────────────────────────────
+        List failures = []
+        baselineMap.each { String metric, BigDecimal baselineValue ->
+            BigDecimal currentValue = currentCoverage.getOrDefault(metric, BigDecimal.ZERO)
+            BigDecimal delta = currentValue - baselineValue
+            if (delta < -tolerancePct) {
+                failures << String.format(
+                    "%-12s  baseline=%6.2f%%  current=%6.2f%%  delta=%+.2f%%  (tolerance=%.2f%%)",
+                    metric, baselineValue, currentValue, delta, tolerancePct
+                )
+            }
+        }
+
+        // ── 4. Write a Markdown summary for the CI step summary ───────────────
+        File summaryFile = file("${buildDir}/jacoco/coverage-summary.md")
+        summaryFile.parentFile.mkdirs()
+        summaryFile.text = buildCoverageMarkdown(currentCoverage, baselineMap, tolerancePct, failures.isEmpty())
+
+        // ── 5. Report result ──────────────────────────────────────────────────
+        if (failures) {
+            String msg = "Coverage regression detected — ${failures.size()} metric(s) below baseline:\n" +
+                failures.collect { "  ${it}" }.join('\n') + "\n\n" +
+                "To update the baseline after a legitimate coverage improvement, edit\n" +
+                "  config/coverage-baseline.properties\n" +
+                "and commit the new figures together with the code change that raised them."
+            throw new GradleException(msg)
+        }
+
+        currentCoverage.each { String metric, BigDecimal value ->
+            logger.lifecycle(String.format(
+                "Coverage OK:  %-12s = %6.2f%%  (baseline: %.2f%%, tolerance: ±%.2f%%)",
+                metric, value, baselineMap[metric], tolerancePct
+            ))
+        }
+    }
+}
+
+// ── Helper methods ────────────────────────────────────────────────────────────
+
+/**
+ * Parses the top-level {@code <counter>} elements from a JaCoCo XML report.
+ * DTD validation is disabled so the report.dtd does not need to be on the classpath.
+ *
+ * @param xmlFile a JaCoCo aggregate report XML file (must exist and be non-empty)
+ * @return map from lower-cased counter type to percentage covered (0–100, 2 d.p.)
+ * @throws GradleException if the file cannot be parsed
+ */
+Map parseCoverageFromXml(File xmlFile) {
+    def parser = new groovy.util.XmlParser(false, false)
+    parser.setFeature('http://apache.org/xml/features/disallow-doctype-decl', false)
+    parser.setFeature('http://apache.org/xml/features/nonvalidating/load-external-dtd', false)
+
+    def report
+    try {
+        report = parser.parse(xmlFile)
+    } catch (Exception e) {
+        throw new GradleException(
+            "Failed to parse JaCoCo XML report at ${xmlFile}: ${e.message}", e
+        )
+    }
+
+    Map result = [:]
+    report.counter.each { counter ->
+        String type = counter.@type?.toString()?.toLowerCase()
+        if (type in ['instruction', 'branch']) {
+            long missed  = (counter.@missed  ?: '0').toLong()
+            long covered = (counter.@covered ?: '0').toLong()
+            long total   = missed + covered
+            BigDecimal pct = total == 0L ? BigDecimal.ZERO
+                : (covered * 100.0G / total).setScale(2, BigDecimal.ROUND_HALF_UP)
+            result[type] = pct
+        }
+    }
+    return result
+}
+
+/**
+ * Returns a Markdown table summarising the coverage result for the CI job summary.
+ */
+String buildCoverageMarkdown(Map current, Map baseline, BigDecimal tolerance, boolean passed) {
+    StringBuilder sb = new StringBuilder()
+    sb << "## \uD83D\uDCCA JaCoCo Aggregate Coverage\n\n"
+    sb << "| Metric | Baseline | Current | Delta | Status |\n"
+    sb << "|:-------|:--------:|:-------:|:-----:|:------:|\n"
+    current.each { String metric, BigDecimal value ->
+        BigDecimal base  = baseline.getOrDefault(metric, BigDecimal.ZERO)
+        BigDecimal delta = value - base
+        String status = delta < -tolerance ? '\u274C regression' : '\u2705 ok'
+        sb << String.format("| %-11s | %6.2f%% | %6.2f%% | %+.2f%% | %s |\n",
+            metric, base, value, delta, status)
+    }
+    sb << "\n_Tolerance: \u00B1${String.format('%.2f', tolerance)}%_\n"
+    return sb.toString()
+}

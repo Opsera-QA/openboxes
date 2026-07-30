@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<report name="openboxes-high-coverage">
+    <package name="org/pih/warehouse/core">
+        <class name="org/pih/warehouse/core/SomeService" sourcefilename="SomeService.groovy">
+            <counter type="INSTRUCTION" missed="5" covered="495"/>
+            <counter type="BRANCH" missed="2" covered="48"/>
+            <counter type="LINE" missed="1" covered="99"/>
+            <counter type="METHOD" missed="0" covered="10"/>
+            <counter type="CLASS" missed="0" covered="1"/>
+        </class>
+    </package>
+    <!-- Top-level counters: instruction coverage = 990/1000 = 99.00%,
+                              branch coverage      =  95/100  = 95.00% -->
+    <counter type="INSTRUCTION" missed="10"  covered="990"/>
+    <counter type="BRANCH"      missed="5"   covered="95"/>
+    <counter type="LINE"        missed="2"   covered="198"/>
+    <counter type="METHOD"      missed="0"   covered="20"/>
+    <counter type="CLASS"       missed="0"   covered="2"/>
+</report>

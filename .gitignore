@@ -28,7 +28,7 @@ tags
 /uploads
 site/
 .slcache
-build/
+/build/
 node_modules
 npm-debug.log
 /src/main/webapp/webpack
@@ -49,3 +49,5 @@ docker/mysql
 docker/openboxes.war
 .gradle
 .~*#
+.claude/
+CLAUDE.md

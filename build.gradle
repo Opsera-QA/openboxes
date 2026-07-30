@@ -379,8 +379,6 @@ processResources {
 repositories {
     mavenCentral()
     maven { url 'https://repo.grails.org/grails/core' }
-    // deprecated; only used to fetch code-coverage plugin
-    maven { url 'https://repo.grails.org/grails/plugins' }
     maven { url 'https://jitpack.io' }
 }
 
@@ -619,15 +617,6 @@ dependencies {
     // enable `import grails.plugin.cache.Cacheable`
     implementation 'org.grails.plugins:cache:4.0.3'
     compile 'org.grails.plugins:cache-ehcache:3.0.0'
-
-    // enable `grails test-app -coverage`
-    testImplementation('org.grails.plugins:code-coverage:2.0.3-3') {
-        // last updated in 2016, this plugin pulls in 10+year-old dependencies
-        exclude group: 'org.apache.ant'  // not needed for gradle builds
-        exclude group: 'org.mortbay.jetty'  // superseded by org.eclipse.jetty
-        exclude group: 'xalan'
-        exclude group: 'xerces'
-    }
 
     // FIXME use commons-csv instead
     implementation 'org.grails.plugins:csv:1.0.1'
@@ -868,47 +857,18 @@ task writePom {
     }
 }
 
-// Jacoco code coverage reporting. https://docs.gradle.org/4.10.3/userguide/jacoco_plugin.html
-// Running "./gradlew jacocoTestReport" will execute all unit and integration tests, then generate a code
-// coverage report under the "/build/reports/jacoco" folder.
+// ── JaCoCo configuration ──────────────────────────────────────────────────────
+// https://docs.gradle.org/4.10.3/userguide/jacoco_plugin.html
+//
+// 0.8.8 requires ASM 9.x (bundled) and supports Java 8 through Java 17.
+// The aggregate report and ratchet tasks are defined in gradle/coverage.gradle.
 jacoco {
-    // Jacoco 0.7.7 requires ASM Version 5.1+ https://www.eclemma.org/jacoco/trunk/doc/changes.html
-    toolVersion = '0.7.6.201602180812'
-}
-// Note that the paths here are by package name (as they are in "build/classes/groovy/main"). As such, we cannot
-// filter by Grails folders such as "**/controller/**" (but we could filter by "**/*Controller.class").
-List jacocoExcludes = [
-        // This filters out all the Groovy-generated closure elements from Jacoco, which helps de-clutter the report but
-        // also prevents any closures from being counted in the report. Leave them in to get a more accurate percentage.
-        //'**/*$*_closure*',
-]
-jacocoTestReport {
-    // Makes sure that tests are always run before a report is generated (because otherwise the report will be blank or
-    // out of date). This allows us to run both tests and coverage with "./gradlew jacocoTestReport"
-    dependsOn test, integrationTest
-
-    // Generates a combined report based on the coverage results generated from both unit tests and integration tests.
-    executionData test, integrationTest
-
-    reports {
-        xml.enabled true  // Needed so that we can upload to Codecov.
-        html.enabled true  // Useful for verifying locally during development.
-    }
-
-    doFirst {
-        // Our source code builds to both "build/classes/groovy" and "build/classes/java" so we need to filter one of
-        // the two class paths out to avoid "Can't add different class with same name" errors. It's dirty to do this
-        // in the "doFirst" block, but it's the only way to tell Jacoco to ONLY use this path.
-        classDirectories = files(files("build/classes/groovy/main").collect {
-            // Then also exclude any packages from the report that we didn't actually generate any coverage % for.
-            fileTree(dir: it, exclude: jacocoExcludes)
-        })
-    }
+    toolVersion = '0.8.8'
 }
 
 // Configuration for both "test" and "integrationTest" tasks.
 tasks.withType(Test) {
-    // never consider test tasks as up-to-date - always run them when requested
+    // Never consider test tasks as up-to-date — always run them when requested.
     outputs.upToDateWhen { false }
 
     // https://github.com/testcontainers/testcontainers-java/pull/11216
@@ -929,7 +889,12 @@ tasks.withType(Test) {
     }
 
     jacoco {
-        // When running tests, exclude the given folders from Jacoco coverage % generation.
-        excludes = jacocoExcludes
+        // Write each tier's execution data to a distinct file under build/jacoco/ so
+        // that concurrent or sequential runs never corrupt each other's data and so
+        // that jacocoAggregateReport can detect a missing tier (see gradle/coverage.gradle).
+        destinationFile = file("${buildDir}/jacoco/${name}.exec")
     }
 }
+
+// Aggregate coverage report and ratchet gate — see gradle/coverage.gradle for details.
+apply from: 'gradle/coverage.gradle'

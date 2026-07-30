@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<report name="openboxes-zero-counters">
+    <!-- Report with no counters: simulates an empty or unexercised build -->
+</report>
