@@ -1,0 +1,44 @@
+name: Dependency Review
+
+# NOTE — REQUIRED-STATUS-CHECK MIGRATION:
+# This file was renamed from dependecy-review.yml (misspelling) to dependency-review.yml.
+# The GitHub Actions check name changed from "Dependency Review / dependency-review"
+# (old file name) to "Dependency Review / dependency-review" (new file name — same job name).
+# Verify branch-protection rules and update any reference to the old filename before merge.
+
+on:
+  pull_request:
+    branches: [ feature/upgrade-to-grails-3.3.10 ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  dependency-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Dependency Review
+        uses: actions/dependency-review-action@2031cfc080254a8a887f58cffee85186f0e49e48 # v4.9.0
+        with:
+          fail-on-severity: critical
+          # Remove the line below when npm will be bumped up to at least 8.3.0
+          # to be able to use the override section in package.json to fix critical vulnerabilities
+          # in nested dependencies of actually used dependencies. The line below prevents the action
+          # from failing, but still, all the critical vulnerabilities will be listed.
+          # https://docs.npmjs.com/cli/v8/configuring-npm/package-json#overrides
+          warn-only: true
+          base-ref: ${{ github.event.pull_request.base.sha || 'feature/upgrade-to-grails-3.3.10' }}
+          head-ref: ${{ github.event.pull_request.head.sha || github.ref }}

@@ -1,0 +1,31 @@
+name: Setup JVM
+description: >
+  Set up Eclipse Temurin JDK and cache Gradle dependencies (~/.gradle/caches and
+  ~/.gradle/wrapper) keyed on build.gradle and gradle.properties.  Every Grails/Gradle
+  job should use this action instead of duplicating setup-java + cache steps.
+
+inputs:
+  java-version:
+    description: JDK version to install (Temurin distribution).  Defaults to 8 so this
+      story is behaviour-preserving; later runtime-uplift stories can pass 11/17/21.
+    required: false
+    default: '8'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up JDK ${{ inputs.java-version }} (Temurin)
+      uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4.8.0
+      with:
+        java-version: ${{ inputs.java-version }}
+        distribution: temurin
+
+    - name: Cache Gradle dependencies
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('build.gradle', 'gradle.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-

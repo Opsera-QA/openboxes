@@ -1,0 +1,20 @@
+name: Setup Node
+description: >
+  Set up Node.js with npm cache keyed on package-lock.json.  Every frontend job should
+  use this action instead of duplicating setup-node steps.
+
+inputs:
+  node-version:
+    description: Node.js version to install.  Defaults to 14 to match the current
+      package.json engine requirement; later uplift stories can pass 18/20/22.
+    required: false
+    default: '14'
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js ${{ inputs.node-version }}
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: npm

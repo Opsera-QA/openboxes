@@ -4,19 +4,31 @@ name: Frontend tests
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   run-frontend-unit-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Configure Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 14
-          cache: npm
+      - name: Set up Node
+        uses: ./.github/actions/setup-node
 
-      - run: npm ci
-      - run: npm test
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test

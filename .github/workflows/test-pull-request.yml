@@ -7,11 +7,24 @@ on:
   pull_request:
     types: [opened, synchronize]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   run-frontend-tests:
     uses: ./.github/workflows/frontend-tests.yml
     secrets: inherit
+    timeout-minutes: 20
 
   run-backend-tests:
     uses: ./.github/workflows/backend-tests.yml
     secrets: inherit
+    timeout-minutes: 75
