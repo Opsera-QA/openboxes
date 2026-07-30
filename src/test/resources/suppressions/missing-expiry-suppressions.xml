@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- Fixture: entries with no 'expires:' line in notes — checker should flag them all. -->
+
+    <suppress>
+        <notes><![CDATA[
+owner: careless-owner
+reason: No expires line — this waiver should be rejected.
+        ]]></notes>
+        <cve>CVE-2020-11022</cve>
+    </suppress>
+
+    <suppress>
+        <!-- No <notes> element at all -->
+        <cve>CVE-2019-11358</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+owner: another-owner
+reason: Has owner and reason but forgot the expires line entirely.
+        ]]></notes>
+        <gav regex="true">.*:some-library:.*</gav>
+    </suppress>
+</suppressions>

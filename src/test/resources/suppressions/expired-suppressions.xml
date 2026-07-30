@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- Fixture: entries with past expiry dates — checker should return them all. -->
+
+    <suppress>
+        <notes><![CDATA[
+owner: expired-owner
+reason: This waiver has already expired.
+expires: 2020-01-01
+        ]]></notes>
+        <cve>CVE-2020-11022</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+owner: another-expired-owner
+reason: This file-path waiver also expired long ago.
+expires: 2019-06-15
+        ]]></notes>
+        <filePath regex="true">.*jquery-1\.4\.4\.js</filePath>
+        <cve>CVE-2019-11358</cve>
+    </suppress>
+</suppressions>

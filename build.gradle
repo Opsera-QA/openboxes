@@ -328,6 +328,24 @@ if (targetWebServer() != 'jetty') {
     }
 }
 
+// ---------------------------------------------------------------------------
+// NVD API key — required since the NVD migrated to API 2.0 for reasonable
+// update throughput.  Set the NVD_API_KEY environment variable in CI (GitHub
+// Actions secret).  Self-hosted forks must supply their own key:
+//   https://nvd.nist.gov/developers/request-an-api-key
+// Never commit a key value.  Fork PRs without the secret degrade to a clearly
+// reported skipped state rather than a false pass.
+//
+// NOTE: The nvdApiKey property requires dependency-check-gradle 8.0+.  Until
+// the plugin is upgraded from ${owaspVersion}, supply the key via the JVM
+// system property: ./gradlew dependencyCheckAnalyze -DnvdApiKey=<key>
+// ---------------------------------------------------------------------------
+String nvdApiKeyValue = System.getenv('NVD_API_KEY')
+if (nvdApiKeyValue) {
+    System.setProperty('nvdApiKey', nvdApiKeyValue)
+}
+
+dependencyCheckAnalyze.dependsOn 'checkSuppressionExpiry'
 dependencyCheckAnalyze.dependsOn 'npm_run_bundle'
 dependencyCheck {
     analyzers {
@@ -341,10 +359,11 @@ dependencyCheck {
     }
 
     autoUpdate = true
-    failBuildOnCVSS = 11
-    format = 'ALL'
-    junitFailOnCVSS = 11
+    failBuildOnCVSS = 7.0
+    formats = ['HTML', 'JSON', 'JUNIT']
+    junitFailOnCVSS = 7.0
     skipTestGroups = true
+    suppressionFile = 'config/dependency-check-suppressions.xml'
 }
 
 gradleLint {
@@ -830,6 +849,102 @@ buildProperties.doLast {
         properties.store(it, null)
     }
 }
+
+/**
+ * Fail the build if any waiver entry in the OWASP suppression file has an
+ * expired (or missing) 'expires: yyyy-MM-dd' date.  Wired into the 'check'
+ * lifecycle and run before 'dependencyCheckAnalyze' so expired suppressions
+ * cannot silently become permanent.
+ *
+ * Logic mirrors SuppressionExpiryChecker (src/main/groovy) which is the
+ * unit-testable version; this Gradle task is a thin adapter over the same
+ * XmlSlurper-based approach.
+ */
+task checkSuppressionExpiry {
+    description = 'Fail the build if any OWASP suppression waiver has expired or is missing an expiry date'
+    group = 'Verification'
+
+    def suppressionXml = file('config/dependency-check-suppressions.xml')
+    inputs.file suppressionXml
+
+    doLast {
+        if (!suppressionXml.exists()) {
+            throw new GradleException(
+                "Suppression file not found: ${suppressionXml.absolutePath}\n" +
+                "Create config/dependency-check-suppressions.xml before running " +
+                "dependencyCheckAnalyze.")
+        }
+
+        def root
+        try {
+            // Disable validation and namespace awareness so the default
+            // dependency-suppression namespace does not require registration.
+            root = new groovy.xml.XmlSlurper(false, false).parse(suppressionXml)
+        } catch (Exception e) {
+            throw new GradleException(
+                "Suppression file is malformed — cannot parse XML. " +
+                "Failing loudly to prevent a fail-open state.\n" +
+                "File: ${suppressionXml.absolutePath}\n" +
+                "Error: ${e.message}")
+        }
+
+        def today = java.time.LocalDate.now()
+        def fmt = java.time.format.DateTimeFormatter.ofPattern('yyyy-MM-dd')
+        List<String> expired = []
+
+        root.suppress.each { suppress ->
+            // Resolve the most specific identifier available.
+            String identifier
+            if (suppress.cve.size() > 0) {
+                identifier = "CVE:${suppress.cve.text()}"
+            } else if (suppress.filePath.size() > 0) {
+                identifier = "filePath:${suppress.filePath.text()}"
+            } else if (suppress.gav.size() > 0) {
+                identifier = "GAV:${suppress.gav.text()}"
+            } else if (suppress.packageUrl.size() > 0) {
+                identifier = "pkg:${suppress.packageUrl.text()}"
+            } else {
+                identifier = '(unknown identifier)'
+            }
+
+            String notes = suppress.notes?.text()?.trim() ?: ''
+            String expiresLine = notes.readLines().find { it.trim().startsWith('expires:') }
+
+            if (!expiresLine) {
+                expired << "  \u2022 ${identifier}: missing 'expires: yyyy-MM-dd' line in " +
+                    "<notes> \u2014 every waiver must carry an explicit expiry date"
+            } else {
+                String dateStr = expiresLine.trim().replaceFirst('^expires:\\s*', '')
+                try {
+                    def expiryDate = java.time.LocalDate.parse(dateStr, fmt)
+                    if (!expiryDate.isAfter(today)) {
+                        expired << "  \u2022 ${identifier}: waiver expired on ${expiryDate} \u2014 " +
+                            "renew with updated justification or fix the vulnerability"
+                    }
+                } catch (java.time.format.DateTimeParseException e) {
+                    throw new GradleException(
+                        "Malformed expiry date '${dateStr}' in suppression notes for " +
+                        "${identifier}. Expected format: yyyy-MM-dd. Error: ${e.message}")
+                }
+            }
+        }
+
+        if (expired) {
+            throw new GradleException(
+                "Found ${expired.size()} expired or invalid waiver(s) in " +
+                "${suppressionXml.name}:\n" +
+                expired.join('\n') + '\n\n' +
+                "Expired waivers must be renewed (with updated justification and a new " +
+                "expiry date) or the underlying vulnerability must be fixed.")
+        }
+
+        logger.lifecycle(
+            "checkSuppressionExpiry: all ${root.suppress.size()} waiver(s) are within " +
+            "their validity period.")
+    }
+}
+
+check.dependsOn 'checkSuppressionExpiry'
 
 task cleanWebpack(type: Delete) {
     description = "Delete webpack's file cache and output directory"

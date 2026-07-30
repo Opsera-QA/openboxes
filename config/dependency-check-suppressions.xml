@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!--
+        Vulnerability Waiver Registry
+        ==============================
+        Purpose: record auditable, time-bounded waivers for pre-existing High findings that
+        cannot be fixed immediately. Criticals may NOT be waived — they must be fixed,
+        upgraded, or escalated with maintainer sign-off recorded in the pull request.
+
+        Required fields in every <suppress> entry (inside <notes>):
+          owner:   GitHub username or team name responsible for remediation
+          reason:  justification for the waiver (why it cannot be fixed right now)
+          expires: yyyy-MM-dd — 90 days from triage date; must be renewed or fixed before expiry
+
+        POLICY:
+          • Any entry missing an 'expires:' line causes the build to fail.
+          • Any entry whose 'expires:' date is today or in the past causes the build to fail.
+          • Use GAV coordinates (not just CVE) for transitive-only findings with no direct
+            upgrade path, so unrelated future findings are not silently suppressed.
+          • Triage SLA: findings must be waived, fixed, or escalated within 5 working days
+            of discovery.
+
+        Known limitation (npm):
+          npm 6 (pinned in package.json / build.gradle) does not support the 'overrides'
+          field.  Transitive npm vulnerabilities that cannot be resolved without an npm
+          version bump are recorded here and deferred to the package-manager uplift story.
+          CI runs 'npm audit --audit-level=high' to surface these findings; the exit code
+          is soft-suppressed with documentation until the npm uplift lands.
+
+        Self-hosted fork operators:
+          Set the NVD_API_KEY environment variable to your own key
+          (https://nvd.nist.gov/developers/request-an-api-key) for full NVD update
+          throughput.  The first run downloads the full NVD dataset (~200 MB) and can
+          take 10-20 minutes; subsequent runs use the cached data directory.
+
+        Initial triage: 2026-07-30
+        All entries below expire 90 days from triage date: 2026-10-28.
+    -->
+
+    <!-- =====================================================================
+         jQuery 1.4.4 — src/main/webapp/js/jquery/jquery-1.4.4.js
+         Rationale: served only from legacy GSP pages; the React SPA bundles
+         its own modern jQuery-free dependencies.  Upgrade blocked on the
+         GSP-to-React migration (Phase 5 of the modernisation roadmap, ~2028).
+         Attack surface: authenticated internal users only; no public exposure.
+         Fix target: remove when GSP pages are migrated (Phase 5).
+         ===================================================================== -->
+    <suppress>
+        <notes><![CDATA[
+owner: security-team
+reason: jQuery 1.4.4 prototype pollution ($.extend). File used only in legacy GSP pages
+        (not the React SPA). Upgrade blocked on Phase 5 GSP-to-React migration.
+        Deployment topology limits exposure to authenticated, internal-network users.
+expires: 2026-10-28
+        ]]></notes>
+        <filePath regex="true">.*jquery-1\.4\.4\.js</filePath>
+        <cve>CVE-2019-11358</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+owner: security-team
+reason: jQuery 1.4.4 cross-site scripting via $.htmlPrefilter (CVE-2020-11022).
+        File used only in legacy GSP pages (not the React SPA).
+        Upgrade blocked on Phase 5 GSP-to-React migration.
+        Deployment topology limits exposure to authenticated, internal-network users.
+expires: 2026-10-28
+        ]]></notes>
+        <filePath regex="true">.*jquery-1\.4\.4\.js</filePath>
+        <cve>CVE-2020-11022</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+owner: security-team
+reason: jQuery 1.4.4 cross-site scripting via $.htmlPrefilter (CVE-2020-11023).
+        File used only in legacy GSP pages (not the React SPA).
+        Upgrade blocked on Phase 5 GSP-to-React migration.
+        Deployment topology limits exposure to authenticated, internal-network users.
+expires: 2026-10-28
+        ]]></notes>
+        <filePath regex="true">.*jquery-1\.4\.4\.js</filePath>
+        <cve>CVE-2020-11023</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+owner: security-team
+reason: jQuery 1.4.4 JSONP injection via $.ajax callback (CVE-2015-9251).
+        File used only in legacy GSP pages (not the React SPA).
+        Upgrade blocked on Phase 5 GSP-to-React migration.
+        Deployment topology limits exposure to authenticated, internal-network users.
+expires: 2026-10-28
+        ]]></notes>
+        <filePath regex="true">.*jquery-1\.4\.4\.js</filePath>
+        <cve>CVE-2015-9251</cve>
+    </suppress>
+
+</suppressions>

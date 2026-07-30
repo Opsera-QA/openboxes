@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions>
+    <!-- Fixture: XML that is structurally invalid — checker must throw, never return an empty list. -->
+    <suppress>
+        <notes><![CDATA[This file is intentionally malformed]]></notes>
+        <cve>CVE-2020-11022</cve>
+    <!-- missing closing </suppress> tag to make it invalid -->
+</suppressions>

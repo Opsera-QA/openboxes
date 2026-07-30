@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- Fixture: all entries have future-dated waivers — checker should return an empty list. -->
+
+    <suppress>
+        <notes><![CDATA[
+owner: test-owner
+reason: Valid future-dated waiver for CVE-2020-11022.
+expires: 2099-12-31
+        ]]></notes>
+        <cve>CVE-2020-11022</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+owner: another-owner
+reason: Valid future-dated waiver for a file-path finding.
+expires: 2099-01-01
+        ]]></notes>
+        <filePath regex="true">.*jquery-1\.4\.4\.js</filePath>
+        <cve>CVE-2019-11358</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+owner: security-team
+reason: Valid GAV-based waiver with leading/trailing whitespace on the expires line.
+expires:   2099-06-15
+        ]]></notes>
+        <gav regex="true">.*:some-library:.*</gav>
+    </suppress>
+</suppressions>
