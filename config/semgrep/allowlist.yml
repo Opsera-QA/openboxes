@@ -56,14 +56,17 @@ entries:
     ruleId: "groovy-mass-assignment-properties-params"
     file: "grails-app/controllers/org/pih/warehouse/user/AuthController.groovy"
     line: 175
-    description: "userInstance.properties = params in handleSignup"
+    description: "userInstance.properties = params in handleSignup — highest-risk instance"
     owner: "platform-team"
     justification: >
       Pre-existing mass assignment in the signup flow. The handleSignup action
       binds all request parameters onto the User domain object. While the active
       flag is set explicitly to false on the next line, other sensitive fields
-      remain user-controllable. Remediation: replace with allow-list bindData
-      in WO-SECURITY-001.
+      remain user-controllable. Rule groovy-mass-assignment-properties-params is
+      set to WARNING (not ERROR) because the pattern exists in ~98 locations across
+      legacy controllers and services; a bulk ERROR would break CI before remediation.
+      AuthController.handleSignup is the highest-risk instance and is the priority
+      target for WO-SECURITY-001. Full scope documented in docs/security/remediation-backlog.md.
     expiryDate: "2026-12-31"
     remediationStory: "WO-SECURITY-001"
 

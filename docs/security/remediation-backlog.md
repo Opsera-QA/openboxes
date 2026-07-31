@@ -93,13 +93,28 @@ return "... AND \`order\`.id = :orderId"
 
 ## B. Mass Assignment (CWE-915)
 
-### B1 — `AuthController.handleSignup` (SEMGREP-AUTH-001)
+> **Scope note (WO-004):** The `groovy-mass-assignment-properties-params` Semgrep rule
+> detects ~98 instances of `.properties = params` across legacy controllers and services.
+> The rule is set to **WARNING** severity (not ERROR) so that CI is not immediately broken
+> before the remediation sprint runs.  All 98 sites are tracked debt; the highest-risk
+> instance (AuthController.handleSignup) is the priority target for WO-SECURITY-001.
+> The rule will be upgraded to ERROR severity once WO-SECURITY-001 reduces the count to zero.
+>
+> **Representative files with pre-existing instances:**
+> `AuthController`, `CategoryApiController`, `DocumentController`, `BudgetCodeController`,
+> `EventTypeController`, `GlAccountController`, `InventoryController`, `InventoryLevelController`,
+> `OrderController`, `ProductController`, `ProductGroupController`, `RequisitionController`,
+> `ShipmentController`, `ShipmentItemController`, `UserController`, `UserService`,
+> and importer services (`LocationImportDataService`, `PersonImportDataService`,
+> `ProductPackageImportDataService`, `UserImportDataService`, `ProductCatalogImportDataService`).
+
+### B1 — `AuthController.handleSignup` (SEMGREP-AUTH-001) — highest-risk instance
 
 | Field | Value |
 |-------|-------|
 | **File** | `grails-app/controllers/org/pih/warehouse/user/AuthController.groovy` |
 | **Line** | ~175 |
-| **Rule** | `groovy-mass-assignment-properties-params` |
+| **Rule** | `groovy-mass-assignment-properties-params` (WARNING) |
 | **Owner** | platform-team |
 | **Expiry** | 2026-12-31 |
 | **Remediation story** | WO-SECURITY-001 |
@@ -108,7 +123,8 @@ return "... AND \`order\`.id = :orderId"
 `handleSignup` binds all request parameters onto a new `User` domain object via
 `userInstance.properties = params`.  Although `active` is explicitly set to
 `false` on the following line, other sensitive `User` fields (e.g. `username`,
-any role-related fields) remain user-controllable.
+any role-related fields) remain user-controllable.  This is the highest-risk
+instance because it is on a public, unauthenticated endpoint.
 
 **Remediation**
 Replace with explicit allow-list binding:
